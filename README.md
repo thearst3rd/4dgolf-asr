@@ -1,6 +1,12 @@
-# asr-4dgolf
+# 4D Golf Autosplitter
 
-An auto splitter for 4D Golf.
+An auto splitter for 4D Golf, using the LiveSplit [Auto Splitting Runtime](https://github.com/LiveSplit/asr).
+
+### Features
+
+* Automatic starting on level load
+* Automatic split on hole completion
+* Load removal
 
 ## Compilation
 
