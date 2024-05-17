@@ -14,7 +14,7 @@
 
 
 use asr::{
-    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, timer, Address64, Process
+    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, timer::{self, TimerState}, Address64, Process
 };
 
 asr::async_main!(stable);
@@ -110,6 +110,8 @@ async fn main() {
                 let mut old_skip_to_game_menu = false;
                 let mut old_is_level_loaded = false;
 
+                let mut old_is_loading = false;
+
                 if let Ok(game_state) = game_state_class.read(&process) {
                     old_course_type_ix = game_state.course_type_ix;
                     old_hole_ix = game_state.hole_ix;
@@ -130,62 +132,77 @@ async fn main() {
                     old_is_level_loaded = is_level_loaded != 0;
                 }
 
+                old_is_loading = (!old_balls_array.is_null() && !old_is_level_loaded && !old_ball_sinking) || old_skip_to_game_menu;
+                if old_is_loading {
+                    timer::pause_game_time();
+                }
+
                 loop {
                     settings.update();
 
-                    if let Ok(game_state) = game_state_class.read(&process) {
-                        let current_course_type_ix = game_state.course_type_ix;
-                        let current_hole_ix = game_state.hole_ix;
-                        let current_balls_array = game_state.balls_array;
+                    let mut current_course_type_ix = old_course_type_ix;
+                    let mut current_hole_ix = old_hole_ix;
+                    let mut current_balls_array = old_balls_array;
+                    let mut current_ball_sinking = false; // Defaults to false unless we properly find everything
+                    let mut current_skip_to_game_menu = old_skip_to_game_menu;
+                    let mut current_is_level_loaded = old_is_level_loaded;
 
-                        if current_course_type_ix != old_course_type_ix {
-                            print_limited::<128>(&format_args!("Course type changed!! {} -> {}", old_course_type_ix, current_course_type_ix));
-                        }
-                        if current_hole_ix != old_hole_ix {
-                            print_limited::<128>(&format_args!("Hole changed!! {} -> {}", old_hole_ix, current_hole_ix));
-                        }
-                        if current_balls_array != old_balls_array {
-                            print_limited::<128>(&format_args!("Balls array changed!! {} -> {}", old_balls_array, current_balls_array));
-                        }
+                    if let Ok(game_state) = game_state_class.read(&process) {
+                        current_course_type_ix = game_state.course_type_ix;
+                        current_hole_ix = game_state.hole_ix;
+                        current_balls_array = game_state.balls_array;
 
                         if let Ok(ball_addr) = process.read::<Address64>(current_balls_array + 0x20) {
                             if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
-                                let current_ball_sinking = ball.sinking;
-                                if current_ball_sinking != old_ball_sinking {
-                                    print_limited::<128>(&format_args!("Balls sinking changed!! {} -> {}", old_ball_sinking, current_ball_sinking));
-                                    if current_ball_sinking {
-                                        print_message("SPLIT!");
-                                        timer::split();
-                                    }
-                                }
-                                old_ball_sinking = current_ball_sinking;
+                                current_ball_sinking = ball.sinking;
                             }
                         }
 
                         if let Ok(main_menu) = main_menu_class.read(&process) {
-                            let current_skip_to_game_menu = main_menu.skip_to_main_menu;
-                            if current_skip_to_game_menu != old_skip_to_game_menu {
-                                print_limited::<128>(&format_args!("Skip to game menu changed!! {} -> {}", old_skip_to_game_menu, current_skip_to_game_menu));
-                            }
-                            old_skip_to_game_menu = current_skip_to_game_menu;
+                            current_skip_to_game_menu = main_menu.skip_to_main_menu;
                         }
 
                         if let Ok(is_level_loaded) = process.read::<u8>(course_class.static_table + 0x10) {
-                            let current_is_level_loaded = is_level_loaded != 0;
-                            if current_is_level_loaded != old_is_level_loaded {
-                                print_limited::<128>(&format_args!("Is level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
-                                if current_is_level_loaded {
-                                    print_message("START!");
-                                    timer::start();
-                                }
-                            }
-                            old_is_level_loaded = current_is_level_loaded;
+                            current_is_level_loaded = is_level_loaded != 0;
                         }
-
-                        old_course_type_ix = current_course_type_ix;
-                        old_hole_ix = current_hole_ix;
-                        old_balls_array = current_balls_array;
                     }
+
+                    if current_hole_ix != old_hole_ix {
+                        print_limited::<128>(&format_args!("Hole changed!! {} -> {}", old_hole_ix, current_hole_ix));
+                    }
+
+                    if current_ball_sinking != old_ball_sinking {
+                        print_limited::<128>(&format_args!("Balls sinking changed!! {} -> {}", old_ball_sinking, current_ball_sinking));
+                        if current_ball_sinking {
+                            timer::split();
+                        }
+                    }
+
+                    if current_is_level_loaded != old_is_level_loaded {
+                        print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
+                        if current_is_level_loaded {
+                            timer::start();
+                        }
+                    }
+
+                    let current_is_loading = (!current_balls_array.is_null() && !current_is_level_loaded && !current_ball_sinking) || current_skip_to_game_menu;
+                    if current_is_loading != old_is_loading {
+                        if current_is_loading {
+                            print_message("Game loading");
+                            timer::pause_game_time();
+                        } else {
+                            print_message("Loading finished");
+                            timer::resume_game_time();
+                        }
+                    }
+
+                    old_course_type_ix = current_course_type_ix;
+                    old_hole_ix = current_hole_ix;
+                    old_balls_array = current_balls_array;
+                    old_ball_sinking = current_ball_sinking;
+                    old_skip_to_game_menu = current_skip_to_game_menu;
+                    old_is_level_loaded = current_is_level_loaded;
+                    old_is_loading = current_is_loading;
 
                     // TODO: Do something on every tick.
                     next_tick().await;
