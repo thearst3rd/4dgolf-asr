@@ -14,8 +14,13 @@
 
 
 use asr::{
-    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, timer::{self, TimerState}, Address64, Process
+    future::{next_tick, retry}, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, timer, Address64, Process
 };
+
+static EXECUTABLE_NAMES: [&str; 2] = [
+    "4D Golf.exe", // Windows
+    "4DGolf.x86_64" // Linux
+];
 
 asr::async_main!(stable);
 asr::panic_handler!();
@@ -72,9 +77,12 @@ async fn main() {
     let mut settings = Settings::register();
 
     loop {
-        let process = Process::wait_attach("4D Golf.exe").await;
+        let process = retry(|| {
+            EXECUTABLE_NAMES.into_iter().find_map(Process::attach)
+        }).await;
         process
             .until_closes(async {
+                print_message("Trying to find mono...");
                 let module = Module::wait_attach(&process, Version::V2020).await;
                 print_message("Found mono");
 
@@ -110,8 +118,6 @@ async fn main() {
                 let mut old_skip_to_game_menu = false;
                 let mut old_is_level_loaded = false;
 
-                let mut old_is_loading = false;
-
                 if let Ok(game_state) = game_state_class.read(&process) {
                     old_course_type_ix = game_state.course_type_ix;
                     old_hole_ix = game_state.hole_ix;
@@ -132,7 +138,7 @@ async fn main() {
                     old_is_level_loaded = is_level_loaded != 0;
                 }
 
-                old_is_loading = (!old_balls_array.is_null() && !old_is_level_loaded && !old_ball_sinking) || old_skip_to_game_menu;
+                let mut old_is_loading = (!old_balls_array.is_null() && !old_is_level_loaded && !old_ball_sinking) || old_skip_to_game_menu;
                 if old_is_loading {
                     timer::pause_game_time();
                 }
@@ -182,6 +188,7 @@ async fn main() {
                         print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
                         if current_is_level_loaded {
                             timer::start();
+                            timer::resume_game_time();
                         }
                     }
 
