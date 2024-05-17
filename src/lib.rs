@@ -14,7 +14,7 @@
 
 
 use asr::{
-    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_message, settings::Gui, Address64, Process
+    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, Address64, Process
 };
 
 asr::async_main!(stable);
@@ -41,6 +41,16 @@ struct GameState {
     balls_array: Address64,
 }
 
+#[derive(Class)]
+struct Ball4D {
+    sinking: bool,
+}
+
+#[derive(Class)]
+struct Ball5D {
+    sinking: bool,
+}
+
 async fn main() {
     // TODO: Set up some general state and settings.
     let mut settings = Settings::register();
@@ -49,7 +59,6 @@ async fn main() {
         let process = Process::wait_attach("4D Golf.exe").await;
         process
             .until_closes(async {
-
                 let module = Module::wait_attach(&process, Version::V2020).await;
                 print_message("Found mono");
 
@@ -59,32 +68,56 @@ async fn main() {
                 let game_state_class = GameState::bind(&process, &module, &image).await;
                 print_message("Found GameState class");
 
-                let mut current_course_type_ix = 0;
-                let mut current_hole_ix = 0;
-                let mut current_balls_array: Address64 = Address64::from(0);
+                let ball_4d_class = Ball4D::bind(&process, &module, &image).await;
+                let ball_5d_class = Ball5D::bind(&process, &module, &image).await;
+                print_message("Found Ball classes");
 
+                if ball_4d_class.sinking != ball_5d_class.sinking {
+                    print_limited::<150>(&format_args!(
+                            "Warning, Ball4D sinking ({}) is not the same as Ball5D sinking ({})!!! 5D levels might be broken",
+                            ball_4d_class.sinking,
+                            ball_5d_class.sinking));
+                }
+
+                let mut old_course_type_ix = 0;
+                let mut old_hole_ix = 0;
+                let mut old_balls_array: Address64 = Address64::from(0);
+
+                let mut old_ball_sinking = false;
 
                 loop {
                     settings.update();
 
                     if let Ok(game_state) = game_state_class.read(&process) {
-                        let new_course_type_ix = game_state.course_type_ix;
-                        let new_current_hole_ix = game_state.hole_ix;
-                        let new_balls_array = game_state.balls_array;
+                        let current_course_type_ix = game_state.course_type_ix;
+                        let current_current_hole_ix = game_state.hole_ix;
+                        let current_balls_array = game_state.balls_array;
 
-
-                        if new_course_type_ix != current_course_type_ix {
+                        if current_course_type_ix != old_course_type_ix {
                             print_message("Course type changed!!");
                         }
-                        if new_current_hole_ix != current_hole_ix {
+                        if current_current_hole_ix != old_hole_ix {
                             print_message("Hole changed!!");
                         }
-                        if new_balls_array != current_balls_array {
+                        if current_balls_array != old_balls_array {
                             print_message("Balls array changed!!");
                         }
-                        current_course_type_ix = new_course_type_ix;
-                        current_hole_ix = new_current_hole_ix;
-                        current_balls_array = new_balls_array;
+
+                        if let Ok(ball_addr) = process.read::<Address64>(current_balls_array + 0x20) {
+                            //print_limited::<64>(&format_args!("Ball addr: {}", ball_addr));
+                            if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
+                                let new_ball_sinking = ball.sinking;
+                                //print_limited::<64>(&format_args!("Ball sinking: {}", new_ball_sinking));
+                                if new_ball_sinking && !old_ball_sinking {
+                                    print_message("Ball sunk!!");
+                                }
+                                old_ball_sinking = new_ball_sinking;
+                            }
+                        }
+
+                        old_course_type_ix = current_course_type_ix;
+                        old_hole_ix = current_current_hole_ix;
+                        old_balls_array = current_balls_array;
                     }
 
                     // TODO: Do something on every tick.
