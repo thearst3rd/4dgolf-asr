@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - 'master'
+      - 'main'
     tags:
       - '*'
 
@@ -12,7 +12,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    permissions: 
+    permissions:
       contents: write
     steps:
       - name: Checkout Commit
@@ -29,7 +29,7 @@ jobs:
           cargo b --release --locked
 
       - name: Release
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
           files: target/wasm32-unknown-unknown/release/asr_4dgolf.wasm
