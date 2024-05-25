@@ -22,10 +22,21 @@ asr::panic_handler!();
 
 #[derive(Gui)]
 struct Settings {
-    /// My Setting
+    /// Automatically start timer
+    ///
+    /// Disable this if you want to do practice without the timer starting.
     #[default = true]
-    my_setting: bool,
-    // TODO: Change these settings.
+    auto_start: bool,
+    /// Only split on the 9th hole
+    ///
+    /// Causes the autosplitter to only split on the 9th hole of the course, for single course 9-hole runs
+    #[default = false]
+    split_9_only: bool,
+    /// Only split on the 18th hole
+    ///
+    /// Causes the autosplitter to only split on the 18th hole of the course, for single course 18 hole runs
+    #[default = false]
+    split_18_only: bool,
 }
 
 #[derive(Class)]
@@ -174,14 +185,26 @@ async fn main() {
                     if current_ball_sinking != old_ball_sinking {
                         print_limited::<128>(&format_args!("Balls sinking changed!! {} -> {}", old_ball_sinking, current_ball_sinking));
                         if current_ball_sinking {
-                            timer::split();
+                            if settings.split_18_only {
+                                if current_hole_ix == 17 {
+                                    timer::split();
+                                }
+                            } else if settings.split_9_only {
+                                if current_hole_ix == 8 || current_hole_ix == 17 {
+                                    timer::split();
+                                }
+                            } else {
+                                timer::split();
+                            }
                         }
                     }
 
                     if current_is_level_loaded != old_is_level_loaded {
                         print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
                         if current_is_level_loaded {
-                            timer::start();
+                            if settings.auto_start {
+                                timer::start();
+                            }
                         }
                     }
 
