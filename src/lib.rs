@@ -11,10 +11,12 @@
  * https://github.com/CryZe/lunistice-auto-splitter/blob/master/src/lib.rs
  * https://livesplit.org/asr/asr/
  */
-
-
 use asr::{
-    future::next_tick, game_engine::unity::il2cpp::{Class, Module, Version}, print_limited, print_message, settings::Gui, timer::{self, TimerState}, Address64, Process
+    future::next_tick,
+    game_engine::unity::il2cpp::{Class, Module, Version},
+    print_limited, print_message,
+    settings::Gui,
+    timer, Address64, Process,
 };
 
 asr::async_main!(stable);
@@ -58,24 +60,10 @@ struct Ball4D {
 }
 
 #[derive(Class)]
-struct Ball5D {
-    sinking: bool,
-}
-
-
-#[derive(Class)]
 struct MainMenu {
     #[rename = "skipToGameMenu"]
     #[static_field]
     skip_to_main_menu: bool,
-}
-
-// Can you do this lol
-#[derive(Class)]
-struct Course {
-    #[rename = "loadedLevel"]
-    #[static_field]
-    loaded_level: Address64,
 }
 
 async fn main() {
@@ -96,21 +84,24 @@ async fn main() {
                 print_message("Found GameState class");
 
                 let ball_4d_class = Ball4D::bind(&process, &module, &image).await;
-                let ball_5d_class = Ball5D::bind(&process, &module, &image).await;
-                print_message("Found Ball classes");
+                let ball_5d_class = image.wait_get_class(&process, &module, "Ball5D").await;
+                print_message("Found Ball classes"); // 😳
+                let ball_5d_sinking_offset = ball_5d_class.wait_get_field_offset(&process, &module, "sinking").await;
 
-                if ball_4d_class.sinking != ball_5d_class.sinking {
+                if ball_4d_class.sinking != ball_5d_sinking_offset {
                     print_limited::<150>(&format_args!(
                             "Warning, Ball4D sinking ({}) is not the same as Ball5D sinking ({})!!! 5D levels might be broken",
                             ball_4d_class.sinking,
-                            ball_5d_class.sinking));
+                            ball_5d_sinking_offset));
                 }
 
                 let main_menu_class = MainMenu::bind(&process, &module, &image).await;
                 print_message("Found MainMenu class");
 
-                let course_class = Course::bind(&process, &module, &image).await;
+                let course_class = image.wait_get_class(&process, &module, "Course").await;
                 print_message("Found Course class");
+                let course_static_table = course_class.wait_get_static_table(&process, &module).await;
+                print_limited::<128>(&format_args!("Course static table: {}", course_static_table));
 
                 let mut old_course_type_ix = 0;
                 let mut old_hole_ix = 0;
@@ -120,8 +111,6 @@ async fn main() {
 
                 let mut old_skip_to_game_menu = false;
                 let mut old_is_level_loaded = false;
-
-                let mut old_is_loading = false;
 
                 if let Ok(game_state) = game_state_class.read(&process) {
                     old_course_type_ix = game_state.course_type_ix;
@@ -139,11 +128,11 @@ async fn main() {
                     old_skip_to_game_menu = main_menu.skip_to_main_menu;
                 }
 
-                if let Ok(is_level_loaded) = process.read::<u8>(course_class.static_table + 0x10) {
+                if let Ok(is_level_loaded) = process.read::<u8>(course_static_table + 0x10) {
                     old_is_level_loaded = is_level_loaded != 0;
                 }
 
-                old_is_loading = (!old_balls_array.is_null() && !old_is_level_loaded && !old_ball_sinking) || old_skip_to_game_menu;
+                let mut old_is_loading = (!old_balls_array.is_null() && !old_is_level_loaded && !old_ball_sinking) || old_skip_to_game_menu;
                 if old_is_loading {
                     timer::pause_game_time();
                 }
@@ -173,7 +162,7 @@ async fn main() {
                             current_skip_to_game_menu = main_menu.skip_to_main_menu;
                         }
 
-                        if let Ok(is_level_loaded) = process.read::<u8>(course_class.static_table + 0x10) {
+                        if let Ok(is_level_loaded) = process.read::<u8>(course_static_table + 0x10) {
                             current_is_level_loaded = is_level_loaded != 0;
                         }
                     }
@@ -201,10 +190,8 @@ async fn main() {
 
                     if current_is_level_loaded != old_is_level_loaded {
                         print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
-                        if current_is_level_loaded {
-                            if settings.auto_start {
-                                timer::start();
-                            }
+                        if current_is_level_loaded && settings.auto_start {
+                            timer::start();
                         }
                     }
 
