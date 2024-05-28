@@ -39,6 +39,16 @@ struct Settings {
     /// Causes the autosplitter to only split on the 18th hole of the course, for single course 18 hole runs
     #[default = false]
     split_18_only: bool,
+    /// Split on new course started
+    ///
+    /// Causes a new split at the beginning of each course, for easy timekeeping of individual course times
+    #[default = false]
+    split_course_begin: bool,
+    /// Split on the beginning of hole 10
+    ///
+    /// Causes a new split at the beginning of hole 10, for easy timekeeping of individual challenge course times
+    #[default = false]
+    split_hole_10_begin: bool,
 }
 
 #[derive(Class)]
@@ -169,6 +179,9 @@ async fn main() {
 
                     if current_hole_ix != old_hole_ix {
                         print_limited::<128>(&format_args!("Hole changed!! {} -> {}", old_hole_ix, current_hole_ix));
+                        if current_hole_ix == 9 && settings.split_hole_10_begin {
+                            timer::split();
+                        }
                     }
 
                     if current_ball_sinking != old_ball_sinking {
@@ -190,8 +203,13 @@ async fn main() {
 
                     if current_is_level_loaded != old_is_level_loaded {
                         print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
-                        if current_is_level_loaded && settings.auto_start {
-                            timer::start();
+                        if current_is_level_loaded {
+                            if current_hole_ix == 0 && settings.split_course_begin {
+                                timer::split();
+                            }
+                            if settings.auto_start {
+                                timer::start();
+                            }
                         }
                     }
 
