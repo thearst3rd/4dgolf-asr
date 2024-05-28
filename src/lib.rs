@@ -203,14 +203,6 @@ async fn main() {
 
                     if current_is_level_loaded != old_is_level_loaded {
                         print_limited::<128>(&format_args!("Level loaded changed!! {} -> {}", old_is_level_loaded, current_is_level_loaded));
-                        if current_is_level_loaded {
-                            if current_hole_ix == 0 && settings.split_course_begin {
-                                timer::split();
-                            }
-                            if settings.auto_start {
-                                timer::start();
-                            }
-                        }
                     }
 
                     let current_is_loading = (!current_balls_array.is_null() && !current_is_level_loaded && !current_ball_sinking) || current_skip_to_game_menu;
@@ -219,7 +211,13 @@ async fn main() {
                             print_message("Game loading");
                             timer::pause_game_time();
                         } else {
-                            print_message("Loading finished");
+                            print_limited::<128>(&format_args!("Loading finished on hole {}", current_hole_ix));
+                            if current_hole_ix == 0 && settings.split_course_begin {
+                                timer::split();
+                            }
+                            if settings.auto_start {
+                                timer::start();
+                            }
                             timer::resume_game_time();
                         }
                     }
