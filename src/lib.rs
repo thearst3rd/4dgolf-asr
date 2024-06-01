@@ -51,6 +51,11 @@ struct Settings {
     /// Causes a new split at the beginning of hole 10, for easy timekeeping of individual challenge course times
     #[default = false]
     split_hole_10_begin: bool,
+    /// Automatically reset run
+    ///
+    /// If you go back to the main menu while not on hole 9/18, automatically reset the run
+    #[default = false]
+    auto_reset: bool,
 }
 
 #[derive(Class)]
@@ -157,7 +162,7 @@ async fn main() {
                     old_balls_array = game_state.balls_array;
 
                     if let Ok(ball_addr) = process.read::<Address64>(old_balls_array + 0x20) {
-                        if old_scene_name.as_str().cmp("Level5D").is_eq() {
+                        if old_scene_name.eq("Level5D") {
                             if let Ok(ball) = ball_5d_class.read(&process, ball_addr.into()) {
                                 old_ball_sinking = ball.sinking;
                             }
@@ -196,7 +201,7 @@ async fn main() {
                         current_balls_array = game_state.balls_array;
 
                         if let Ok(ball_addr) = process.read::<Address64>(current_balls_array + 0x20) {
-                            if current_scene_name.as_str().cmp("Level5D").is_eq() {
+                            if current_scene_name.eq("Level5D") {
                                 if let Ok(ball) = ball_5d_class.read(&process, ball_addr.into()) {
                                     current_ball_sinking = ball.sinking;
                                 }
@@ -216,8 +221,24 @@ async fn main() {
                         }
                     }
 
-                    if old_scene_name.cmp(&current_scene_name).is_ne() {
+                    if old_scene_name.ne(&current_scene_name) {
                         print_limited::<400>(&format_args!("Current scene changed! {} -> {}", &old_scene_name, &current_scene_name));
+                        if settings.auto_reset && current_scene_name.eq("MainMenu") {
+                            // Did they quit to the menu without being on the last hole?
+                            if current_course_type_ix == 0 {
+                                if current_hole_ix != 8 {
+                                    timer::reset();
+                                }
+                            } else if current_course_type_ix == 1 {
+                                if current_hole_ix != 17 {
+                                    timer::reset();
+                                }
+                            }
+                        }
+                    }
+
+                    if current_course_type_ix != old_course_type_ix {
+                        print_limited::<128>(&format_args!("Course type changed!! {} -> {}", old_course_type_ix, current_course_type_ix));
                     }
 
                     if current_hole_ix != old_hole_ix {
@@ -255,7 +276,7 @@ async fn main() {
                             timer::pause_game_time();
                         } else {
                             print_limited::<128>(&format_args!("Loading finished"));
-                            if current_scene_name.as_str().cmp("MainMenu").is_ne() {
+                            if current_scene_name.ne("MainMenu") {
                                 if current_hole_ix == 0 && settings.split_course_begin {
                                     timer::split();
                                 }
