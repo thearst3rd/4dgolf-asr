@@ -1,4 +1,5 @@
-#![no_std]
+// We need std for the string class
+//#![no_std]
 
 /**
  * Autosplitter for 4D Golf
@@ -11,16 +12,17 @@
  * https://github.com/CryZe/lunistice-auto-splitter/blob/master/src/lib.rs
  * https://livesplit.org/asr/asr/
  */
+use std::str;
 use asr::{
     future::next_tick,
-    game_engine::unity::il2cpp::{Class, Module, Version},
+    game_engine::unity::{get_scene_name, il2cpp::{Class, Module, Version}, SceneManager},
     print_limited, print_message,
     settings::Gui,
     timer, Address64, Process,
 };
 
 asr::async_main!(stable);
-asr::panic_handler!();
+//asr::panic_handler!(); // Doesn't work with std
 
 #[derive(Gui)]
 struct Settings {
@@ -77,7 +79,11 @@ struct MainMenu {
 }
 
 async fn main() {
-    // TODO: Set up some general state and settings.
+    // Since we are using std we need to add the panic handler ourselves
+    std::panic::set_hook(Box::new(|panic_info| {
+        print_message(&panic_info.to_string());
+    }));
+
     let mut settings = Settings::register();
 
     loop {
@@ -89,6 +95,9 @@ async fn main() {
 
                 let image = module.wait_get_default_image(&process).await;
                 print_message("Found Assembly-CSharp");
+
+                let scene_manager = SceneManager::wait_attach(&process).await;
+                print_message("Attached SceneManager");
 
                 let game_state_class = GameState::bind(&process, &module, &image).await;
                 print_message("Found GameState class");
@@ -147,6 +156,16 @@ async fn main() {
                     timer::pause_game_time();
                 }
 
+                let mut old_scene_name = String::from("");
+
+                if let Ok(path) = scene_manager.get_current_scene_path::<128>(&process) {
+                    let name = get_scene_name(path.as_bytes());
+                    if let Ok(name) = str::from_utf8(name) {
+                        old_scene_name.push_str(name);
+                        print_limited::<256>(&format_args!("Current Scene: {}", name));
+                    }
+                }
+
                 loop {
                     settings.update();
 
@@ -156,6 +175,17 @@ async fn main() {
                     let mut current_ball_sinking = false; // Defaults to false unless we properly find everything
                     let mut current_skip_to_game_menu = old_skip_to_game_menu;
                     let mut current_is_level_loaded = old_is_level_loaded;
+                    let mut current_scene_name = old_scene_name.clone();
+
+                    if let Ok(path) = scene_manager.get_current_scene_path::<128>(&process) {
+                        let name = get_scene_name(path.as_bytes());
+                        if let Ok(name) = str::from_utf8(name) {
+                            if !name.is_empty() {
+                                current_scene_name.clear();
+                                current_scene_name.push_str(name);
+                            }
+                        }
+                    }
 
                     if let Ok(game_state) = game_state_class.read(&process) {
                         current_course_type_ix = game_state.course_type_ix;
@@ -175,6 +205,10 @@ async fn main() {
                         if let Ok(is_level_loaded) = process.read::<u8>(course_static_table + 0x10) {
                             current_is_level_loaded = is_level_loaded != 0;
                         }
+                    }
+
+                    if old_scene_name.cmp(&current_scene_name).is_ne() {
+                        print_limited::<400>(&format_args!("Current scene changed! {} -> {}", &old_scene_name, &current_scene_name));
                     }
 
                     if current_hole_ix != old_hole_ix {
@@ -211,12 +245,14 @@ async fn main() {
                             print_message("Game loading");
                             timer::pause_game_time();
                         } else {
-                            print_limited::<128>(&format_args!("Loading finished on hole {}", current_hole_ix));
-                            if current_hole_ix == 0 && settings.split_course_begin {
-                                timer::split();
-                            }
-                            if settings.auto_start {
-                                timer::start();
+                            print_limited::<128>(&format_args!("Loading finished"));
+                            if current_scene_name.as_str().cmp("MainMenu").is_ne() {
+                                if current_hole_ix == 0 && settings.split_course_begin {
+                                    timer::split();
+                                }
+                                if settings.auto_start {
+                                    timer::start();
+                                }
                             }
                             timer::resume_game_time();
                         }
@@ -229,6 +265,7 @@ async fn main() {
                     old_skip_to_game_menu = current_skip_to_game_menu;
                     old_is_level_loaded = current_is_level_loaded;
                     old_is_loading = current_is_loading;
+                    old_scene_name = current_scene_name;
 
                     // TODO: Do something on every tick.
                     next_tick().await;
