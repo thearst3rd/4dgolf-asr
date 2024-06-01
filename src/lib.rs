@@ -72,6 +72,11 @@ struct Ball4D {
 }
 
 #[derive(Class)]
+struct Ball5D {
+    sinking: bool,
+}
+
+#[derive(Class)]
 struct MainMenu {
     #[rename = "skipToGameMenu"]
     #[static_field]
@@ -103,16 +108,8 @@ async fn main() {
                 print_message("Found GameState class");
 
                 let ball_4d_class = Ball4D::bind(&process, &module, &image).await;
-                let ball_5d_class = image.wait_get_class(&process, &module, "Ball5D").await;
+                let ball_5d_class = Ball5D::bind(&process, &module, &image).await;
                 print_message("Found Ball classes"); // 😳
-                let ball_5d_sinking_offset = ball_5d_class.wait_get_field_offset(&process, &module, "sinking").await;
-
-                if ball_4d_class.sinking != ball_5d_sinking_offset {
-                    print_limited::<150>(&format_args!(
-                            "Warning, Ball4D sinking ({}) is not the same as Ball5D sinking ({})!!! 5D levels might be broken",
-                            ball_4d_class.sinking,
-                            ball_5d_sinking_offset));
-                }
 
                 let main_menu_class = MainMenu::bind(&process, &module, &image).await;
                 print_message("Found MainMenu class");
@@ -130,18 +127,6 @@ async fn main() {
 
                 let mut old_skip_to_game_menu = false;
                 let mut old_is_level_loaded = false;
-
-                if let Ok(game_state) = game_state_class.read(&process) {
-                    old_course_type_ix = game_state.course_type_ix;
-                    old_hole_ix = game_state.hole_ix;
-                    old_balls_array = game_state.balls_array;
-
-                    if let Ok(ball_addr) = process.read::<Address64>(old_balls_array + 0x20) {
-                        if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
-                            old_ball_sinking = ball.sinking;
-                        }
-                    }
-                }
 
                 if let Ok(main_menu) = main_menu_class.read(&process) {
                     old_skip_to_game_menu = main_menu.skip_to_main_menu;
@@ -163,6 +148,24 @@ async fn main() {
                     if let Ok(name) = str::from_utf8(name) {
                         old_scene_name.push_str(name);
                         print_limited::<256>(&format_args!("Current Scene: {}", name));
+                    }
+                }
+
+                if let Ok(game_state) = game_state_class.read(&process) {
+                    old_course_type_ix = game_state.course_type_ix;
+                    old_hole_ix = game_state.hole_ix;
+                    old_balls_array = game_state.balls_array;
+
+                    if let Ok(ball_addr) = process.read::<Address64>(old_balls_array + 0x20) {
+                        if old_scene_name.as_str().cmp("Level5D").is_eq() {
+                            if let Ok(ball) = ball_5d_class.read(&process, ball_addr.into()) {
+                                old_ball_sinking = ball.sinking;
+                            }
+                        } else {
+                            if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
+                                old_ball_sinking = ball.sinking;
+                            }
+                        }
                     }
                 }
 
@@ -193,8 +196,14 @@ async fn main() {
                         current_balls_array = game_state.balls_array;
 
                         if let Ok(ball_addr) = process.read::<Address64>(current_balls_array + 0x20) {
-                            if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
-                                current_ball_sinking = ball.sinking;
+                            if current_scene_name.as_str().cmp("Level5D").is_eq() {
+                                if let Ok(ball) = ball_5d_class.read(&process, ball_addr.into()) {
+                                    current_ball_sinking = ball.sinking;
+                                }
+                            } else {
+                                if let Ok(ball) = ball_4d_class.read(&process, ball_addr.into()) {
+                                    current_ball_sinking = ball.sinking;
+                                }
                             }
                         }
 
